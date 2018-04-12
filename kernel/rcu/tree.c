@@ -722,42 +722,6 @@ static struct rcu_node *rcu_get_root(struct rcu_state *rsp)
 }
 
 /*
- * Is there any need for future grace periods?
- * Interrupts must be disabled.  If the caller does not hold the root
- * rnp_node structure's ->lock, the results are advisory only.
- */
-static int rcu_future_needs_gp(struct rcu_state *rsp)
-{
-	struct rcu_node *rnp = rcu_get_root(rsp);
-
-	RCU_LOCKDEP_WARN(!irqs_disabled(), "rcu_future_needs_gp() invoked with irqs enabled!!!");
-	return need_any_future_gp(rnp);
-}
-
-/*
- * Does the current CPU require a not-yet-started grace period?
- * The caller must have disabled interrupts to prevent races with
- * normal callback registry.
- */
-static bool
-cpu_needs_another_gp(struct rcu_state *rsp, struct rcu_data *rdp)
-{
-	RCU_LOCKDEP_WARN(!irqs_disabled(), "cpu_needs_another_gp() invoked with irqs enabled!!!");
-	if (rcu_gp_in_progress(rsp))
-		return false;  /* No, a grace period is already in progress. */
-	if (rcu_future_needs_gp(rsp))
-		return true;  /* Yes, a no-CBs CPU needs one. */
-	if (!rcu_segcblist_is_enabled(&rdp->cblist))
-		return false;  /* No, this is a no-CBs (or offline) CPU. */
-	if (!rcu_segcblist_restempty(&rdp->cblist, RCU_NEXT_READY_TAIL))
-		return true;  /* Yes, CPU has newly registered callbacks. */
-	if (rcu_segcblist_future_gp_needed(&rdp->cblist,
-					   READ_ONCE(rsp->completed)))
-		return true;  /* Yes, CBs for future grace period. */
-	return false; /* No grace period needed. */
-}
-
-/*
  * rcu_eqs_enter_common - current CPU is entering an extended quiescent state
  *
  * Enter idle, doing appropriate accounting.  The caller must have
@@ -3371,7 +3335,9 @@ static int __rcu_pending(struct rcu_state *rsp, struct rcu_data *rdp)
 	}
 
 	/* Has RCU gone idle with this CPU needing another grace period? */
-	if (cpu_needs_another_gp(rsp, rdp)) {
+	if (!rcu_gp_in_progress(rsp) &&
+	    rcu_segcblist_is_enabled(&rdp->cblist) &&
+	    !rcu_segcblist_restempty(&rdp->cblist, RCU_NEXT_READY_TAIL)) {
 		rdp->n_rp_cpu_needs_gp++;
 		return 1;
 	}
