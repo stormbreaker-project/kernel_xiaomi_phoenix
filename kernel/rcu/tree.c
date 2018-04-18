@@ -733,7 +733,7 @@ static int rcu_future_needs_gp(struct rcu_state *rsp)
 	struct rcu_node *rnp = rcu_get_root(rsp);
 
 	RCU_LOCKDEP_WARN(!irqs_disabled(), "rcu_future_needs_gp() invoked with irqs enabled!!!");
-	return READ_ONCE(need_future_gp_element(rnp, rnp->completed));
+	return need_any_future_gp(rnp);
 }
 
 /*
