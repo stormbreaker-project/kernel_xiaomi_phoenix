@@ -8509,11 +8509,23 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	rcu_read_lock();
 
 	if (sd_flag & SD_BALANCE_WAKE) {
+		int _cpus_allowed = cpumask_test_cpu(cpu, &p->cpus_allowed);
+
+		if (_cpus_allowed) {
+			bool about_to_idle = sysctl_sched_sync_hint_enable &&
+				wake_affine_idle(cpu, prev_cpu, sync);
+
+			if (about_to_idle) {
+				rcu_read_unlock();
+				return cpu;
+			}
+		}
+
 		record_wakee(p);
 		want_energy = wake_energy(p, prev_cpu, sd_flag, wake_flags);
 		want_affine = !want_energy &&
 			      !wake_wide(p, sibling_count_hint) &&
-			      cpumask_test_cpu(cpu, &p->cpus_allowed);
+			      _cpus_allowed;
 	}
 
 	for_each_domain(cpu, tmp) {
