@@ -8511,14 +8511,12 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	if (sd_flag & SD_BALANCE_WAKE) {
 		int _cpus_allowed = cpumask_test_cpu(cpu, &p->cpus_allowed);
 
-		if (_cpus_allowed && cpu_is_in_target_set(p, cpu)) {
-			bool about_to_idle = sysctl_sched_sync_hint_enable &&
-				wake_affine_idle(cpu, prev_cpu, sync);
-
-			if (about_to_idle) {
-				rcu_read_unlock();
-				return cpu;
-			}
+		if (sysctl_sched_sync_hint_enable && sync &&
+				_cpus_allowed &&
+				wake_affine_idle(cpu, prev_cpu, sync) &&
+				cpu_is_in_target_set(p, cpu)) {
+			rcu_read_unlock();
+			return cpu;
 		}
 
 		record_wakee(p);
