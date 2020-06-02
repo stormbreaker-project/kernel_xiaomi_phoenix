@@ -7568,8 +7568,7 @@ irqreturn_t wdog_snarl_irq_handler(int irq, void *data)
 		schedule_delayed_work(&chg->thermal_regulation_work, 0);
 	}
 
-	if (chg->step_chg_enabled)
-		power_supply_changed(chg->batt_psy);
+	power_supply_changed(chg->batt_psy);
 
 	return IRQ_HANDLED;
 }
@@ -7915,8 +7914,7 @@ static void bms_update_work(struct work_struct *work)
 
 	smblib_suspend_on_debug_battery(chg);
 
-	if (chg->batt_psy)
-		power_supply_changed(chg->batt_psy);
+	power_supply_changed(chg->batt_psy);
 }
 
 static void pl_update_work(struct work_struct *work)
