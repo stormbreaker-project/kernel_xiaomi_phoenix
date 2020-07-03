@@ -10,6 +10,16 @@
  * GNU General Public License for more details.
  */
 
+&pm6150_vadc {
+	quiet_therm {
+		reg = <ADC_GPIO4_PU2>;
+		label = "quiet_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
  &thermal_zones {
 	lmh-dcvs-00 {
         status = "disabled";
