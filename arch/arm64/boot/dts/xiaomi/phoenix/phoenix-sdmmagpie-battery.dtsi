@@ -53,6 +53,7 @@
 };
 
 &pm6150_charger {
+    google,usb-port-tz-name = "usbc-therm-adc";
     io-channels = <&pm6150_vadc ADC_USB_IN_V_16>,
               <&pm6150_vadc ADC_USB_IN_I>,
               <&pm6150_vadc ADC_CHG_TEMP>,
