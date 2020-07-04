@@ -36,11 +36,8 @@ err() {
 # The defult directory where the kernel should be placed
 KERNEL_DIR=$PWD
 
-# Kernel Version
-VERSION="v3.0"
-
-# The name of the Kernel, to name the ZIP
-ZIPNAME="StormBreaker-$VERSION"
+# Sign Kernel or not
+SIGN=1
 
 # The name of the device for which the kernel is built
 MODEL="Poco X2/Redmi K30"
@@ -116,6 +113,8 @@ fi
 #Check Kernel Version
 KERVER=$(make kernelversion)
 
+# The name of the Kernel, to name the ZIP
+ZIPNAME="StormBreaker-$KERVER"
 
 # Set a commit head
 COMMIT_HEAD=$(git log --oneline -1)
@@ -289,10 +288,23 @@ gen_zip() {
 		mv "$KERNEL_DIR"/out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
 	fi
 	cd AnyKernel3 || exit
-	zip -r9 $ZIPNAME-$DEVICE-"$DATE".zip * -x .git README.md
+	zip -r9 $ZIPNAME-$DEVICE.zip * -x .git README.md
 
 	## Prepare a final zip variable
-	ZIP_FINAL="$ZIPNAME-$DEVICE-$DATE.zip"
+	ZIP_FINAL="$ZIPNAME-$DEVICE.zip"
+
+	if [ $SIGN = 1 ]
+	then
+		## Sign the zip before sending it to telegram
+		if [ "$PTTG" = 1 ]
+ 		then
+ 			msg "|| Signing Zip ||"
+ 			tg_post_msg "<code>Signing Zip file with AOSP keys..</code>" "$CHATID"
+ 		fi
+		curl -sLo zipsigner-3.0.jar https://raw.githubusercontent.com/baalajimaestro/AnyKernel2/master/zipsigner-3.0.jar
+		java -jar zipsigner-3.0.jar "$ZIPNAME"-"$DEVICE".zip "$ZIPNAME"-"$DEVICE"-signed.zip
+		ZIP_FINAL="$ZIPNAME-$DEVICE-signed.zip"
+	fi
 
 	tg_post_build "$ZIP_FINAL" "$CHATID" "Build took : $((DIFF / 60)) minute(s) and $((DIFF % 60)) second(s)"
 	cd ..
