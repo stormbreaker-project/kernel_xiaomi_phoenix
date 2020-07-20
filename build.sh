@@ -36,6 +36,9 @@ err() {
 # The defult directory where the kernel should be placed
 KERNEL_DIR=$PWD
 
+# Kernel Version
+VERSION="3.0"
+
 # Sign Kernel or not
 SIGN=1
 
@@ -114,7 +117,7 @@ fi
 KERVER=$(make kernelversion)
 
 # The name of the Kernel, to name the ZIP
-ZIPNAME="StormBreaker-$KERVER"
+ZIPNAME="StormBreaker-$VERSION"
 
 # Set a commit head
 COMMIT_HEAD=$(git log --oneline -1)
