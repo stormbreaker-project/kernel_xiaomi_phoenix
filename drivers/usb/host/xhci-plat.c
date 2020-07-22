@@ -483,17 +483,7 @@ static int xhci_plat_resume(struct device *dev)
 
 	dev_dbg(dev, "xhci-plat PM resume\n");
 
-	ret = xhci_priv_resume_quirk(hcd);
-	if (ret)
-		return ret;
-
-	/* resume from hibernation/power-collapse */
-	ret = xhci_resume(xhci, true);
-	pm_runtime_disable(dev);
-	pm_runtime_set_active(dev);
-	pm_runtime_enable(dev);
-
-	return ret;
+	return xhci_priv_resume_quirk(hcd);
 }
 #endif
 
