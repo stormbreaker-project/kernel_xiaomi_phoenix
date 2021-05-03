@@ -424,21 +424,6 @@ static int parse_options(struct super_block *sb, char *options)
 
 		switch (token) {
 		case Opt_gc_background:
-			name = match_strdup(&args[0]);
-
-			if (!name)
-				return -ENOMEM;
-			if (strlen(name) == 2 && !strncmp(name, "on", 2)) {
-				F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_ON;
-			} else if (strlen(name) == 3 && !strncmp(name, "off", 3)) {
-				F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_OFF;
-			} else if (strlen(name) == 4 && !strncmp(name, "sync", 4)) {
-				F2FS_OPTION(sbi).bggc_mode = BGGC_MODE_SYNC;
-			} else {
-				kvfree(name);
-				return -EINVAL;
-			}
-			kvfree(name);
 			break;
 		case Opt_disable_roll_forward:
 			set_opt(sbi, DISABLE_ROLL_FORWARD);
