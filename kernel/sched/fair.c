@@ -190,7 +190,6 @@ unsigned int sched_capacity_margin_down[NR_CPUS] = {
 unsigned int sysctl_sched_min_task_util_for_boost = 51;
 /* 0.68ms default for 20ms window size scaled to 1024 */
 unsigned int sysctl_sched_min_task_util_for_colocation = 35;
-bool sched_prefer_idle_on_input;
 __read_mostly unsigned int sysctl_sched_prefer_spread;
 #endif
 static unsigned int __maybe_unused sched_small_task_threshold = 102;
@@ -8332,9 +8331,6 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 		 * to avoid tasks spilling on to the other cluster just
 		 * because this cluster did not have idle CPUs.
 		 */
-		if (sched_prefer_idle_on_input)
-			need_idle = true;
-
 		eenv->max_cpu_count = EAS_CPU_BKP + 1;
 
 		fbt_env.is_rtg = is_rtg;
