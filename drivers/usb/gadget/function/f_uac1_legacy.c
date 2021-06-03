@@ -575,6 +575,7 @@ f_audio_playback_ep_complete(struct usb_ep *ep, struct usb_request *req)
 		return -EINVAL;
 
 	/* Copy buffer is full, add it to the play_queue */
+/*<<<<<<< HEAD
 	if (audio_playback_buf_size - copy_buf->actual < req->actual) {
 		pr_debug("audio_playback_buf_size %d - copy_buf->actual %d, req->actual %d",
 			audio_playback_buf_size, copy_buf->actual, req->actual);
@@ -587,6 +588,12 @@ f_audio_playback_ep_complete(struct usb_ep *ep, struct usb_request *req)
 			list_add_tail(&copy_buf->list, &audio->play_queue);
 		}
 		spin_unlock_irqrestore(&audio->playback_lock, flags);
+=======*/
+	if (audio_buf_size - copy_buf->actual < req->actual) {
+		spin_lock_irq(&audio->lock);
+		list_add_tail(&copy_buf->list, &audio->play_queue);
+		spin_unlock_irq(&audio->lock);
+//>>>>>>> 0d27eaf7ec3e678d358de05c2ea4dc48796e9d3d
 		schedule_work(&audio->playback_work);
 		copy_buf = f_audio_buffer_alloc(audio_playback_buf_size);
 		if (IS_ERR(copy_buf)) {
