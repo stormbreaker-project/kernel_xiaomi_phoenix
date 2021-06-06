@@ -1,5 +1,4 @@
 /* Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1252,8 +1251,6 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 	 * check for termination at reduced float voltage and re-trigger
 	 * charging if new float voltage is above last FV.
 	 */
-/* This logic, together with FFC logic, will cause deadlock */
-/*
 	if ((chip->float_voltage_uv < fv_uv) && is_batt_available(chip)) {
 		rc = power_supply_get_property(chip->batt_psy,
 				POWER_SUPPLY_PROP_STATUS, &pval);
@@ -1261,7 +1258,7 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 			pr_err("Couldn't get battery status rc=%d\n", rc);
 		} else {
 			if (pval.intval == POWER_SUPPLY_STATUS_FULL) {
-				pr_info("re-triggering charging\n");
+				pr_debug("re-triggering charging\n");
 				pval.intval = 1;
 				rc = power_supply_set_property(chip->batt_psy,
 					POWER_SUPPLY_PROP_FORCE_RECHARGE,
@@ -1274,7 +1271,6 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 	}
 
 	chip->float_voltage_uv = fv_uv;
-*/
 
 	return 0;
 }
@@ -1378,7 +1374,10 @@ static int pl_disable_vote_callback(struct votable *votable,
 	struct pl_data *chip = data;
 	union power_supply_propval pval = {0, };
 	int master_fcc_ua = 0, total_fcc_ua = 0, slave_fcc_ua = 0;
-	int rc = 0, cp_ilim, batt_temp;
+	int rc = 0, cp_ilim;
+#ifdef CONFIG_MACH_XIAOMI_SDMMAGPIE
+	int batt_temp;
+#endif
 	bool disable = false;
 
 	if (!is_main_available(chip))
@@ -1560,7 +1559,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 								total_fcc_ua);
 			cp_ilim = total_fcc_ua - get_effective_result_locked(
 							chip->fcc_main_votable);
-
+#ifdef CONFIG_MACH_XIAOMI_SDMMAGPIE
 			if (cp_get_parallel_mode(chip, PARALLEL_OUTPUT_MODE)
 					== POWER_SUPPLY_PL_OUTPUT_VBAT) {
 				rc = power_supply_get_property(chip->batt_psy,
@@ -1574,7 +1573,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 						&& (batt_temp > CP_COOL_THRESHOLD + SOFT_JEITA_HYSTERESIS))
 					cp_ilim += CP_ILIM_COMP;
 			}
-
+#endif
 			if (cp_ilim > 0)
 				cp_configure_ilim(chip, FCC_VOTER, cp_ilim / 2);
 

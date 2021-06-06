@@ -1,5 +1,4 @@
 /* Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -385,11 +384,6 @@ int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 
 	if (chip->battery_missing) {
 		*temp = 250;
-		return 0;
-	}
-
-	if (chip->batt_fake_temp != -1) {
-		*temp = chip->batt_fake_temp;
 		return 0;
 	}
 

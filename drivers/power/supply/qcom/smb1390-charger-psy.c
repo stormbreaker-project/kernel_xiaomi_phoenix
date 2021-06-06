@@ -1,5 +1,4 @@
 /* Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -118,7 +117,7 @@
 #define CC_MODE_TAPER_DELTA_UA		200000
 #define DEFAULT_TAPER_DELTA_UA		100000
 #define CC_MODE_TAPER_MAIN_ICL_UA	500000
-#define USBIN_1700MA		1700000
+#define USBIN_1700MA			1700000
 
 #define smb1390_dbg(chip, reason, fmt, ...)				\
 	do {								\
@@ -674,7 +673,6 @@ unlock:
 
 	if (rc >= 0)
 		val->intval = smb1390_get_isns(temp);
-	pr_err("smb1390 isns value, isns = %d\n", val->intval);
 
 	return rc;
 }
@@ -993,6 +991,16 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 		smb1390_dbg(chip, PR_INFO, "ILIM set to %duA slave_enabled = %d\n",
 						ilim_uA, slave_enabled);
 		vote(chip->disable_votable, ILIM_VOTER, false, 0);
+
+		/* recalculate FCC offset for main */
+		if (!chip->fcc_main_votable)
+			chip->fcc_main_votable = find_votable("FCC_MAIN");
+		if (chip->fcc_main_votable)
+			rerun_election(chip->fcc_main_votable);
+
+		/* Notify userspace */
+		if (chip->cp_master_psy)
+			power_supply_changed(chip->cp_master_psy);
 	}
 
 	return rc;
@@ -1082,7 +1090,6 @@ static void smb1390_configure_ilim(struct smb1390 *chip, int mode)
 
 		rc = power_supply_get_property(chip->usb_psy,
 				POWER_SUPPLY_PROP_INPUT_CURRENT_SETTLED, &pval);
-		pr_err("pval.val: %d\n", pval.intval);
 		if (rc < 0) {
 			pr_err("Couldn't get usb aicl rc=%d\n", rc);
 		} else {
@@ -1152,14 +1159,15 @@ static void smb1390_status_change_work(struct work_struct *work)
 			goto out;
 		}
 
+		vote(chip->usb_icl_votable, SOC_LEVEL_VOTER,
+			smb1390_is_batt_soc_valid(chip) ?
+			false : true, USBIN_1700MA);
+
 		/*
 		 * Slave SMB1390 is not required for the power-rating of QC3
 		 */
 		if (pval.intval != POWER_SUPPLY_CP_HVDCP3)
 			vote(chip->slave_disable_votable, SRC_VOTER, false, 0);
-		vote(chip->usb_icl_votable, SOC_LEVEL_VOTER,
-			smb1390_is_batt_soc_valid(chip) ?
-			false : true, USBIN_1700MA);
 
 		/* Check for SOC threshold only once before enabling CP */
 		vote(chip->disable_votable, SRC_VOTER, false, 0);
@@ -1201,6 +1209,7 @@ static void smb1390_status_change_work(struct work_struct *work)
 			goto out;
 
 		curr_vfloat_uv = get_effective_result(chip->fv_votable);
+
 		rc = power_supply_get_property(chip->batt_psy,
 				POWER_SUPPLY_PROP_CHARGE_TYPE, &pval);
 		if (rc < 0) {
@@ -1295,10 +1304,19 @@ static void smb1390_taper_work(struct work_struct *work)
 {
 	struct smb1390 *chip = container_of(work, struct smb1390, taper_work);
 	union power_supply_propval pval = {0, };
-	int rc, fcc_uA, delta_fcc_uA;
+	int rc, fcc_uA, delta_fcc_uA, main_fcc_ua = 0, fcc_cp_ua;
 
 	if (!is_psy_voter_available(chip))
 		goto out;
+
+	if (!chip->fcc_main_votable)
+		chip->fcc_main_votable = find_votable("FCC_MAIN");
+
+	if (chip->fcc_main_votable)
+		main_fcc_ua = get_effective_result(chip->fcc_main_votable);
+
+	if (main_fcc_ua < 0)
+		main_fcc_ua = 0;
 
 	chip->taper_entry_fv = get_effective_result(chip->fv_votable);
 	while (true) {
@@ -1328,14 +1346,29 @@ static void smb1390_taper_work(struct work_struct *work)
 			smb1390_dbg(chip, PR_INFO, "taper work reducing FCC to %duA\n",
 				fcc_uA);
 			vote(chip->fcc_votable, CP_VOTER, true, fcc_uA);
-			rc = smb1390_validate_slave_chg_taper(chip, fcc_uA);
+			rc = smb1390_validate_slave_chg_taper(chip, (fcc_uA -
+							      main_fcc_ua));
 			if (rc < 0) {
 				pr_err("Couldn't Disable slave in Taper, rc=%d\n",
 				       rc);
 				goto out;
 			}
 
-			if (fcc_uA < (chip->min_ilim_ua * 2)) {
+			/*
+			 * fcc and fcc_main are the same for VPH config, hence
+			 * reduce fcc_main from fcc only in VBAT (output config)
+			 * where fcc_main is a portion of full-fcc.
+			 */
+			fcc_cp_ua = fcc_uA;
+			if (chip->pl_output_mode == POWER_SUPPLY_PL_OUTPUT_VBAT)
+				fcc_cp_ua = fcc_uA - main_fcc_ua;
+
+			smb1390_dbg(chip, PR_INFO,
+				"Taper: fcc_ua=%d fcc_cp_ua=%d fcc_main_ua=%d min_ilim_ua(x2) = %u\n",
+				fcc_uA, fcc_cp_ua, main_fcc_ua,
+				(chip->min_ilim_ua*2));
+
+			if (fcc_cp_ua < (chip->min_ilim_ua * 2)) {
 				vote(chip->disable_votable, TAPER_END_VOTER,
 								true, 0);
 				/*
@@ -1519,8 +1552,8 @@ static int smb1390_get_prop(struct power_supply *psy,
 		val->intval = chip->min_ilim_ua;
 		break;
 	case POWER_SUPPLY_PROP_MODEL_NAME:
-		val->strval = (chip->pmic_rev_id->rev4 > 2) ? "SMB1390_V3" :
-								"SMB1390_V2";
+		rc = smb1390_read(chip, CORE_STATUS1_REG, &status);
+		val->strval = rc ?"smb1390" : "unknown";
 		break;
 	case POWER_SUPPLY_PROP_PARALLEL_MODE:
 		val->intval = chip->pl_input_mode;
@@ -1664,6 +1697,7 @@ static int smb1390_parse_dt(struct smb1390 *chip)
 	of_property_read_u32(chip->dev->of_node,
 			     "qcom,cc-mode-taper-main-icl-ua",
 			     &chip->cc_mode_taper_main_icl_ua);
+
 	chip->six_pin_batt = of_property_read_bool(chip->dev->of_node,
 				"mi,six-pin-batt");
 

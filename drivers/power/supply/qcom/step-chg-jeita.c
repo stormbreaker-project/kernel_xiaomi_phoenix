@@ -1,5 +1,4 @@
 /* Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,7 +23,6 @@
 #define STEP_CHG_VOTER		"STEP_CHG_VOTER"
 #define JEITA_VOTER		"JEITA_VOTER"
 #define DYNAMIC_FV_VOTER	"DYNAMIC_FV_VOTER"
-#define BATT_PROFILE_VOTER	"BATT_PROFILE_VOTER"
 
 #define is_between(left, right, value) \
 		(((left) >= (right) && (left) >= (value) \
@@ -51,6 +49,7 @@ struct dynamic_fv_cfg {
 	char			*prop_name;
 	struct range_data	fv_cfg[MAX_STEP_CHG_ENTRIES];
 };
+
 struct step_chg_info {
 	struct device		*dev;
 	ktime_t			step_last_update_time;
@@ -264,7 +263,7 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 	u32 max_fv_uv, max_fcc_ma;
 	const char *batt_type_str;
 	const __be32 *handle;
-	int batt_id_ohms, rc, step_chg_hysteresis;
+	int batt_id_ohms, rc;
 	union power_supply_propval prop = {0, };
 
 	handle = of_get_property(chip->dev->of_node,
@@ -360,14 +359,6 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 		chip->step_chg_config->param.use_bms = true;
 	}
 
-	rc = of_property_read_u32(profile_node, "mi,step-chg-hysteresis", &step_chg_hysteresis);
-	if (!rc) {
-		pr_info("use dts step_chg_hysteresis: %d\n", step_chg_hysteresis);
-		chip->step_chg_config->param.hysteresis = step_chg_hysteresis;
-	} else {
-		pr_info("don't use dts step_chg_hysteresis: %d\n", chip->step_chg_config->param.hysteresis);
-	}
-
 	chip->step_chg_cfg_valid = true;
 	rc = read_range_data_from_node(profile_node,
 			"qcom,step-chg-ranges",
@@ -447,17 +438,17 @@ static void get_config_work(struct work_struct *work)
 	chip->config_is_read = true;
 
 	for (i = 0; i < MAX_STEP_CHG_ENTRIES; i++)
-		pr_err("step-chg-cfg: %duV(SoC) ~ %duV(SoC), %duA\n",
+		pr_debug("step-chg-cfg: %duV(SoC) ~ %duV(SoC), %duA\n",
 			chip->step_chg_config->fcc_cfg[i].low_threshold,
 			chip->step_chg_config->fcc_cfg[i].high_threshold,
 			chip->step_chg_config->fcc_cfg[i].value);
 	for (i = 0; i < MAX_STEP_CHG_ENTRIES; i++)
-		pr_err("jeita-fcc-cfg: %ddecidegree ~ %ddecidegre, %duA\n",
+		pr_debug("jeita-fcc-cfg: %ddecidegree ~ %ddecidegre, %duA\n",
 			chip->jeita_fcc_config->fcc_cfg[i].low_threshold,
 			chip->jeita_fcc_config->fcc_cfg[i].high_threshold,
 			chip->jeita_fcc_config->fcc_cfg[i].value);
 	for (i = 0; i < MAX_STEP_CHG_ENTRIES; i++)
-		pr_err("jeita-fv-cfg: %ddecidegree ~ %ddecidegre, %duV\n",
+		pr_debug("jeita-fv-cfg: %ddecidegree ~ %ddecidegre, %duV\n",
 			chip->jeita_fv_config->fv_cfg[i].low_threshold,
 			chip->jeita_fv_config->fv_cfg[i].high_threshold,
 			chip->jeita_fv_config->fv_cfg[i].value);
@@ -482,6 +473,14 @@ int get_val(struct range_data *range, int hysteresis, int current_index,
 	int i;
 
 	*new_index = -EINVAL;
+
+	/*
+	 * As battery temperature may be below 0, range.xxx is a unsigned int, but battery
+	 * temperature is a signed int, so cannot compare them when battery temp is below 0,
+	 * we treat it as 0 degree when the parameter threshold(battery temp) is below 0.
+	 */
+	if (threshold < 0)
+		threshold = 0;
 
 	/*
 	 * If the threshold is lesser than the minimum allowed range,
@@ -515,7 +514,7 @@ int get_val(struct range_data *range, int hysteresis, int current_index,
 	if (*new_index == -EINVAL) {
 		if (i == 0) {
 			/* Battery profile data array is completely invalid */
-			return -EINVAL;
+			return -ENODATA;
 		}
 
 		*new_index = (i - 1);
@@ -565,7 +564,7 @@ int get_val(struct range_data *range, int hysteresis, int current_index,
 }
 EXPORT_SYMBOL(get_val);
 
-#define TAPERED_STEP_CHG_FCC_REDUCTION_STEP_MA		100000 /* 100 mA */
+#define TAPERED_STEP_CHG_FCC_REDUCTION_STEP_MA		50000 /* 50 mA */
 static void taper_fcc_step_chg(struct step_chg_info *chip, int index,
 					int current_voltage)
 {
@@ -687,10 +686,10 @@ static int handle_step_chg_config(struct step_chg_info *chip)
 		vote(chip->fcc_votable, STEP_CHG_VOTER, true, fcc_ua);
 	}
 
-	pr_debug("%s = %d Step-FCC = %duA taper-fcc: %d index: %d\n",
+	pr_debug("%s = %d Step-FCC = %duA taper-fcc: %d\n",
 		chip->step_chg_config->param.prop_name, pval.intval,
 		get_client_vote(chip->fcc_votable, STEP_CHG_VOTER),
-		chip->taper_fcc, chip->step_index);
+		chip->taper_fcc);
 
 update_time:
 	chip->step_last_update_time = ktime_get();
@@ -757,7 +756,6 @@ static int handle_dynamic_fv(struct step_chg_info *chip)
 		goto update_time;
 
 	vote(chip->fv_votable, DYNAMIC_FV_VOTER, true, fv_uv);
-	vote(chip->fv_votable, BATT_PROFILE_VOTER, true, fv_uv);
 
 	/*set battery full voltage to FLOAT VOLTAGE*/
 	pval.intval = fv_uv;
@@ -775,9 +773,13 @@ update_time:
 	return 0;
 }
 
-#define JEITA_SUSPEND_HYST_UV		130000
+#ifdef CONFIG_MACH_XIAOMI_SDMMAGPIE
+#define JEITA_SUSPEND_HYST_UV		70000
+#else
+#define JEITA_SUSPEND_HYST_UV		50000
+#endif
 #define JEITA_SIX_PIN_BATT_HYST_UV	100000
-#define WARM_VFLOAT_UV			4100000
+#define WARM_VFLOAT_UV				4100000
 static int handle_jeita(struct step_chg_info *chip)
 {
 	union power_supply_propval pval = {0, };
@@ -824,6 +826,7 @@ static int handle_jeita(struct step_chg_info *chip)
 	}
 
 	temp = pval.intval;
+	/* should disable/enable cp(smb1390) when soft jeita trigger and clear */
 	if (chip->six_pin_battery && !chip->use_bq_pump) {
 		if (!chip->cp_disable_votable)
 			chip->cp_disable_votable = find_votable("CP_DISABLE");
@@ -849,12 +852,10 @@ static int handle_jeita(struct step_chg_info *chip)
 	if (!chip->fcc_votable)
 		chip->fcc_votable = find_votable("FCC");
 	if (!chip->fcc_votable)
+		/* changing FCC is a must */
 		return -EINVAL;
 
-	if(rc == -ENODATA)
-		vote(chip->fcc_votable, JEITA_VOTER, true, fcc_ua);
-	else
-		vote(chip->fcc_votable, JEITA_VOTER, fcc_ua ? true : false, fcc_ua);
+	vote(chip->fcc_votable, JEITA_VOTER, fcc_ua ? true : false, fcc_ua);
 
 	rc = get_val(chip->jeita_fv_config->fv_cfg,
 			chip->jeita_fv_config->param.hysteresis,
@@ -902,7 +903,6 @@ static int handle_jeita(struct step_chg_info *chip)
 				pr_info("batt_temp = %d, ffc_chg_term_current=%d\n", batt_temp, chg_term_current);
 			}
 		}
-		pval.intval = batt_temp;
 	}
 
 	chip->fv_votable = find_votable("FV");
@@ -918,6 +918,7 @@ static int handle_jeita(struct step_chg_info *chip)
 	pr_err("%s = %d FCC = %duA FV = %duV\n",
 		chip->jeita_fcc_config->param.prop_name, pval.intval, fcc_ua, fv_uv);
 
+	/* set and clear fast charge mode when soft jeita trigger and clear */
 	if (chip->six_pin_battery) {
 		rc = power_supply_get_property(chip->usb_psy,
 				POWER_SUPPLY_PROP_PD_AUTHENTICATION, &pval);
@@ -931,8 +932,6 @@ static int handle_jeita(struct step_chg_info *chip)
 			pr_err("get hvdcp3_type failed, rc=%d\n", rc);
 
 		if ((pval.intval == HVDCP3_CLASS_B_27W)
-					|| (pval.intval == HVDCP3P5_CLASS_A_18W)
-					|| (pval.intval == HVDCP3P5_CLASS_B_27W)
 					|| (pd_authen_result == 1)) {
 			if ((temp >= BATT_WARM_THRESHOLD || temp <= BATT_COOL_THRESHOLD)
 						&& !fast_mode_dis) {
@@ -963,6 +962,10 @@ static int handle_jeita(struct step_chg_info *chip)
 		}
 	}
 
+	/*
+	 * If JEITA float voltage is same as max-vfloat of battery then
+	 * skip any further VBAT specific checks.
+	 */
 	rc = power_supply_get_property(chip->batt_psy,
 				POWER_SUPPLY_PROP_VOLTAGE_MAX, &pval);
 	if (rc || (pval.intval == fv_uv)) {
@@ -970,7 +973,15 @@ static int handle_jeita(struct step_chg_info *chip)
 		goto set_jeita_fv;
 	}
 
+	/*
+	 * Suspend USB input path if battery voltage is above
+	 * JEITA VFLOAT threshold.
+	 */
+#ifndef CONFIG_MACH_XIAOMI_SDMMAGPIE
+	if (chip->jeita_arb_en && fv_uv > 0) {
+#else
 	if (fv_uv > 0) {
+#endif
 		rc = power_supply_get_property(chip->batt_psy,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, &pval);
 		if (rc < 0) {
@@ -1002,8 +1013,7 @@ static int handle_jeita(struct step_chg_info *chip)
 					vote(chip->usb_icl_votable, JEITA_VOTER, false, 0);
 				}
 			} else {
-				pr_info("curr_vbat_uv = %duV,FCC =%duA,FV = %duV\n",curr_vbat_uv, fcc_ua, fv_uv);
-				if (curr_vbat_uv > fv_uv + JEITA_SIX_PIN_BATT_HYST_UV) {
+				if (curr_vbat_uv > fv_uv) {
 					if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_TAPER && fv_uv == WARM_VFLOAT_UV)
 						vote(chip->usb_icl_votable, JEITA_VOTER, true, 0);
 				} else if (curr_vbat_uv < (fv_uv - JEITA_SUSPEND_HYST_UV)) {
@@ -1044,6 +1054,10 @@ static int handle_battery_insertion(struct step_chg_info *chip)
 			chip->dynamic_fv_cfg_valid = false;
 			chip->get_config_retry_count = 0;
 		} else {
+			/*
+			 * Get config for the new inserted battery, delay
+			 * to make sure BMS has read out the batt_id.
+			 */
 			schedule_delayed_work(&chip->get_config_work,
 				msecs_to_jiffies(WAIT_BATT_ID_READY_MS));
 		}
@@ -1060,11 +1074,12 @@ static void status_change_work(struct work_struct *work)
 	union power_supply_propval prop = {0, };
 	static bool soc_vote_flag;
 
-	if (!is_batt_available(chip) || !is_bms_available(chip) || !is_usb_available(chip))
+	if (!is_batt_available(chip) || !is_bms_available(chip))
 		goto exit_work;
 
 	handle_battery_insertion(chip);
 
+	/* skip elapsed_us debounce for handling battery temperature */
 	rc = handle_jeita(chip);
 	if (rc < 0)
 		pr_err("Couldn't handle sw jeita rc = %d\n", rc);

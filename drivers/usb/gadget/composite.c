@@ -196,12 +196,6 @@ int config_ep_by_speed_and_alt(struct usb_gadget *g,
 		speed_desc = f->fs_descriptors;
 	}
 
-	if (!speed_desc) {
-		DBG(cdev, "%s desc not present for function %s\n",
-			usb_speed_string(g->speed), f->name);
-		return -EIO;
-	}
-
 	/* find correct alternate setting descriptor */
 	for_each_desc(speed_desc, d_spd, USB_DT_INTERFACE) {
 		int_desc = (struct usb_interface_descriptor *)*d_spd;
