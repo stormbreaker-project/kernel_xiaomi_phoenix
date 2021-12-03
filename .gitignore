@@ -140,3 +140,5 @@ AnyKernel3
 build.log
 scripts/ufdt/
 out
+gcc
+gcc32
